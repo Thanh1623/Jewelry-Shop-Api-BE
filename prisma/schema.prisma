@@ -1,0 +1,128 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  CUSTOMER
+  SALE
+
+  @@map("user_role")
+}
+
+enum MessageSender {
+  CUSTOMER
+  SALE
+  AI
+  CRAFTSMAN
+  SYSTEM
+
+  @@map("message_sender")
+}
+
+enum CraftsmanRequestStatus {
+  PENDING
+  SENT
+  ANSWERED
+  FAILED
+
+  @@map("craftsman_request_status")
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  fullName     String   @map("full_name")
+  role         UserRole @default(CUSTOMER)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  chatSessionsAsCustomer ChatSession[] @relation("SessionCustomer")
+  chatSessionsAsSale     ChatSession[] @relation("SessionSale")
+  messages               ChatMessage[]
+
+  @@map("users")
+}
+
+model Product {
+  id              String   @id @default(uuid()) @db.Uuid
+  sku             String   @unique
+  name            String
+  description     String?
+  imageUrl        String?  @map("image_url")
+  weightGrams     Float    @map("weight_grams")
+  laborCost       Int      @map("labor_cost")
+  baseSize        Int      @default(6) @map("base_size")
+  sizeDeltaGrams  Float    @default(0.15) @map("size_delta_grams")
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  chatSessions      ChatSession[]
+  craftsmanRequests CraftsmanRequest[]
+
+  @@map("products")
+}
+
+model ChatSession {
+  id             String   @id @default(uuid()) @db.Uuid
+  productId      String?  @map("product_id") @db.Uuid
+  customerId     String?  @map("customer_id") @db.Uuid
+  saleId         String?  @map("sale_id") @db.Uuid
+  guestName      String?  @map("guest_name")
+  title          String?
+  customerLocale String?  @map("customer_locale")
+  isOpen         Boolean  @default(true) @map("is_open")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  product           Product?           @relation(fields: [productId], references: [id], onDelete: SetNull)
+  customer          User?              @relation("SessionCustomer", fields: [customerId], references: [id], onDelete: SetNull)
+  sale              User?              @relation("SessionSale", fields: [saleId], references: [id], onDelete: SetNull)
+  messages          ChatMessage[]
+  craftsmanRequests CraftsmanRequest[]
+
+  @@index([isOpen, updatedAt])
+  @@map("chat_sessions")
+}
+
+model ChatMessage {
+  id        String        @id @default(uuid()) @db.Uuid
+  sessionId String        @map("session_id") @db.Uuid
+  senderId  String?       @map("sender_id") @db.Uuid
+  sender    MessageSender
+  content   String
+  metaJson  Json?         @map("meta_json")
+  createdAt DateTime      @default(now()) @map("created_at")
+  updatedAt DateTime      @updatedAt @map("updated_at")
+
+  session ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user    User?       @relation(fields: [senderId], references: [id], onDelete: SetNull)
+
+  @@index([sessionId, createdAt])
+  @@map("chat_messages")
+}
+
+model CraftsmanRequest {
+  id               String                 @id @default(uuid()) @db.Uuid
+  sessionId        String                 @map("session_id") @db.Uuid
+  productId        String?                @map("product_id") @db.Uuid
+  question         String
+  status           CraftsmanRequestStatus @default(PENDING)
+  answer           String?
+  craftsmanName    String?                @map("craftsman_name")
+  answeredAt       DateTime?              @map("answered_at")
+  externalError    String?                @map("external_error")
+  createdAt        DateTime               @default(now()) @map("created_at")
+  updatedAt        DateTime               @updatedAt @map("updated_at")
+
+  session ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  product Product?    @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@map("craftsman_requests")
+}
