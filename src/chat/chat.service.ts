@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { ChatMessage, MessageSender, Prisma } from '@prisma/client';
 
 import {
@@ -73,6 +78,9 @@ export class ChatService {
         customer: {
           select: { id: true, fullName: true, email: true, phone: true },
         },
+        sale: {
+          select: { id: true, fullName: true, email: true },
+        },
         messages: {
           orderBy: { createdAt: 'desc' },
           take: 1,
@@ -81,6 +89,83 @@ export class ChatService {
       },
     });
     return sessions.map(mapSessionToSummary);
+  }
+
+  /** Atomic claim: first sale to claim wins. */
+  async claimSession(
+    sessionId: string,
+    saleUserId: string,
+  ): Promise<ChatSessionSummary> {
+    const session = await this.prisma.chatSession.findUnique({
+      where: { id: sessionId },
+      select: { id: true, isOpen: true, saleId: true },
+    });
+    if (!session) {
+      throw new NotFoundException('Không tìm thấy phiên trò chuyện.');
+    }
+    if (!session.isOpen) {
+      throw new BadRequestException('Phiên đã đóng.');
+    }
+    if (session.saleId && session.saleId !== saleUserId) {
+      throw new ConflictException('Phiên đã được sale khác nhận.');
+    }
+    if (session.saleId === saleUserId) {
+      return this.getSessionSummary(sessionId);
+    }
+
+    const claimed = await this.prisma.chatSession.updateMany({
+      where: { id: sessionId, saleId: null, isOpen: true },
+      data: { saleId: saleUserId },
+    });
+    if (claimed.count === 0) {
+      throw new ConflictException('Phiên đã được sale khác nhận.');
+    }
+    return this.getSessionSummary(sessionId);
+  }
+
+  async releaseSession(
+    sessionId: string,
+    saleUserId: string,
+  ): Promise<ChatSessionSummary> {
+    const session = await this.prisma.chatSession.findUnique({
+      where: { id: sessionId },
+      select: { id: true, saleId: true },
+    });
+    if (!session) {
+      throw new NotFoundException('Không tìm thấy phiên trò chuyện.');
+    }
+    if (session.saleId !== saleUserId) {
+      throw new BadRequestException('Chỉ sale đang nhận phiên mới được trả lại.');
+    }
+    await this.prisma.chatSession.update({
+      where: { id: sessionId },
+      data: { saleId: null },
+    });
+    return this.getSessionSummary(sessionId);
+  }
+
+  private async getSessionSummary(sessionId: string): Promise<ChatSessionSummary> {
+    const session = await this.prisma.chatSession.findUnique({
+      where: { id: sessionId },
+      include: {
+        product: { select: { id: true, name: true, imageUrl: true } },
+        customer: {
+          select: { id: true, fullName: true, email: true, phone: true },
+        },
+        sale: {
+          select: { id: true, fullName: true, email: true },
+        },
+        messages: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: { id: true, sender: true, content: true, createdAt: true },
+        },
+      },
+    });
+    if (!session) {
+      throw new NotFoundException('Không tìm thấy phiên trò chuyện.');
+    }
+    return mapSessionToSummary(session);
   }
 
   async getSessionWithMessages(sessionId: string): Promise<ChatSessionDetail> {
@@ -183,6 +268,55 @@ export class ChatService {
       sessionId,
       MessageSender.SALE,
       text,
+      metaJson,
+    );
+  }
+
+  /** Public SALE quote visible to customer (accept → order). */
+  async createQuoteMessage(
+    sessionId: string,
+    dto: {
+      productId: string;
+      unitPrice: number;
+      quantity: number;
+      size?: number;
+      note?: string;
+    },
+  ): Promise<ChatMessage> {
+    const session = await this.prisma.chatSession.findUnique({
+      where: { id: sessionId },
+      select: { id: true, productId: true },
+    });
+    if (!session) {
+      throw new NotFoundException('Không tìm thấy phiên trò chuyện.');
+    }
+
+    const product = await this.productService.findById(dto.productId);
+    if (!product.isActive) {
+      throw new BadRequestException('Sản phẩm không còn bán.');
+    }
+
+    const unitPrice = Math.round(dto.unitPrice);
+    const quantity = dto.quantity;
+    const lineTotal = unitPrice * quantity;
+    const sizePart = dto.size ? ` · size ${dto.size}` : '';
+    const notePart = dto.note?.trim() ? `\nGhi chú: ${dto.note.trim()}` : '';
+    const content = `Báo giá: ${product.name}${sizePart}\n${unitPrice.toLocaleString('vi-VN')}đ × ${quantity} = ${lineTotal.toLocaleString('vi-VN')}đ${notePart}`;
+
+    const metaJson = {
+      type: 'quote',
+      productId: product.id,
+      productName: product.name,
+      unitPrice,
+      quantity,
+      ...(dto.size !== undefined ? { size: dto.size } : {}),
+      ...(dto.note?.trim() ? { note: dto.note.trim() } : {}),
+    } as unknown as Prisma.InputJsonValue;
+
+    return this.createMessage(
+      sessionId,
+      MessageSender.SALE,
+      content,
       metaJson,
     );
   }

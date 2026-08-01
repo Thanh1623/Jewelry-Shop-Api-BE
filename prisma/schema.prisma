@@ -36,6 +36,9 @@ enum CraftsmanRequestStatus {
 enum OrderStatus {
   PENDING_PAYMENT
   PAID
+  PROCESSING
+  READY
+  DELIVERED
   CANCELLED
   FAILED
 
@@ -123,6 +126,10 @@ model Order {
   paymentProvider String      @default("DEMO") @map("payment_provider")
   paymentRef      String?     @map("payment_ref")
   paidAt          DateTime?   @map("paid_at")
+  quoteMessageId  String?     @unique @map("quote_message_id") @db.Uuid
+  shippingName    String?     @map("shipping_name")
+  shippingPhone   String?     @map("shipping_phone")
+  shippingAddress String?     @map("shipping_address")
   createdAt       DateTime    @default(now()) @map("created_at")
   updatedAt       DateTime    @updatedAt @map("updated_at")
 
@@ -130,6 +137,7 @@ model Order {
   items OrderItem[]
 
   @@index([userId, createdAt])
+  @@index([status, createdAt])
   @@map("orders")
 }
 

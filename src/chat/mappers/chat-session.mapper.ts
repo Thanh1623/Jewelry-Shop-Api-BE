@@ -7,6 +7,12 @@ export interface ChatSessionCustomerSummary {
   phone: string | null;
 }
 
+export interface ChatSessionSaleSummary {
+  id: string;
+  fullName: string;
+  email: string;
+}
+
 export interface ChatSessionSummary {
   id: string;
   title: string | null;
@@ -16,6 +22,7 @@ export interface ChatSessionSummary {
   isOpen: boolean;
   product: Pick<Product, 'id' | 'name' | 'imageUrl'> | null;
   customer: ChatSessionCustomerSummary | null;
+  sale: ChatSessionSaleSummary | null;
   lastMessage: Pick<
     ChatMessage,
     'id' | 'sender' | 'content' | 'createdAt'
@@ -27,6 +34,7 @@ export interface ChatSessionSummary {
 type SessionWithSummaryRelations = ChatSession & {
   product: Pick<Product, 'id' | 'name' | 'imageUrl'> | null;
   customer: Pick<User, 'id' | 'fullName' | 'email' | 'phone'> | null;
+  sale?: Pick<User, 'id' | 'fullName' | 'email'> | null;
   messages: Pick<ChatMessage, 'id' | 'sender' | 'content' | 'createdAt'>[];
 };
 
@@ -42,6 +50,13 @@ export function mapSessionToSummary(
     isOpen: session.isOpen,
     product: session.product,
     customer: session.customer,
+    sale: session.sale
+      ? {
+          id: session.sale.id,
+          fullName: session.sale.fullName,
+          email: session.sale.email,
+        }
+      : null,
     lastMessage: session.messages[0] ?? null,
     createdAt: session.createdAt,
     updatedAt: session.updatedAt,

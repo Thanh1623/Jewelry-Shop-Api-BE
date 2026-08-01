@@ -20,6 +20,7 @@ import {
   TranslatePreviewResponse,
 } from './chat.service';
 import { CreateSessionDto } from './dto/create-session.dto';
+import { CreateQuoteDto } from './dto/create-quote.dto';
 import { SendMessageDto } from './dto/send-message.dto';
 import { TranslatePreviewDto } from './dto/translate-preview.dto';
 import { ChatSessionSummary } from './mappers/chat-session.mapper';
@@ -50,6 +51,52 @@ export class ChatController {
   @Get()
   listOpenSessions(): Promise<ChatSessionSummary[]> {
     return this.chatService.listOpenSessions();
+  }
+
+  @ApiBearerAuth()
+  @Roles(UserRole.SALE)
+  @Post(':id/claim')
+  async claimSession(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: JwtPayloadUser,
+  ): Promise<ChatSessionSummary> {
+    const session = await this.chatService.claimSession(id, user.sub);
+    this.chatGateway.emitSaleInbox({
+      kind: 'session_claimed',
+      sessionId: id,
+      title: 'Phiên đã được nhận',
+      body: `${user.fullName} đã nhận phiên tư vấn.`,
+    });
+    return session;
+  }
+
+  @ApiBearerAuth()
+  @Roles(UserRole.SALE)
+  @Post(':id/release')
+  async releaseSession(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: JwtPayloadUser,
+  ): Promise<ChatSessionSummary> {
+    const session = await this.chatService.releaseSession(id, user.sub);
+    this.chatGateway.emitSaleInbox({
+      kind: 'session_released',
+      sessionId: id,
+      title: 'Phiên được trả lại hàng đợi',
+      body: `${user.fullName} đã trả phiên.`,
+    });
+    return session;
+  }
+
+  @ApiBearerAuth()
+  @Roles(UserRole.SALE)
+  @Post(':id/quotes')
+  async createQuote(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateQuoteDto,
+  ): Promise<ChatMessage> {
+    const message = await this.chatService.createQuoteMessage(id, dto);
+    this.chatGateway.emitMessageCreated(id, message);
+    return message;
   }
 
   @Public()

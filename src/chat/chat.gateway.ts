@@ -31,7 +31,12 @@ export interface CraftsmanRequestUpdatedPayload {
 }
 
 export interface SaleInboxPayload {
-  kind: 'customer_message' | 'craftsman_reply' | 'new_session';
+  kind:
+    | 'customer_message'
+    | 'craftsman_reply'
+    | 'new_session'
+    | 'session_claimed'
+    | 'session_released';
   sessionId: string;
   title: string;
   body: string;
