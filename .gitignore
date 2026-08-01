@@ -406,3 +406,7 @@ dist
 .cursor/
 
 /generated/prisma
+
+# Uploaded images (keep folder via .gitkeep)
+/uploads/*
+!/uploads/.gitkeep

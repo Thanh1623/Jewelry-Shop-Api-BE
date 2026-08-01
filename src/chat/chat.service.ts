@@ -17,6 +17,9 @@ import {
 
 const sessionDetailInclude = {
   product: true,
+  customer: {
+    select: { id: true, fullName: true, email: true, phone: true },
+  },
   messages: { orderBy: { createdAt: 'asc' } },
 } satisfies Prisma.ChatSessionInclude;
 
@@ -44,13 +47,17 @@ export class ChatService {
     private readonly translationService: TranslationService,
   ) {}
 
-  async createSession(dto: CreateSessionDto): Promise<ChatSessionDetail> {
+  async createSession(
+    dto: CreateSessionDto,
+    customer: { sub: string; fullName: string },
+  ): Promise<ChatSessionDetail> {
     if (dto.productId) {
       await this.productService.findById(dto.productId);
     }
     const session = await this.prisma.chatSession.create({
       data: {
-        guestName: dto.guestName,
+        customerId: customer.sub,
+        guestName: dto.guestName?.trim() || customer.fullName,
         productId: dto.productId,
       },
     });
@@ -63,6 +70,9 @@ export class ChatService {
       orderBy: { updatedAt: 'desc' },
       include: {
         product: { select: { id: true, name: true, imageUrl: true } },
+        customer: {
+          select: { id: true, fullName: true, email: true, phone: true },
+        },
         messages: {
           orderBy: { createdAt: 'desc' },
           take: 1,

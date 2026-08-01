@@ -9,6 +9,8 @@ export interface AskCraftsmanWebhookBody {
   productWeightGrams: number;
   productLaborCost: number;
   productBaseSize: number;
+  productImageUrl: string | null;
+  referenceImageUrl: string | null;
   question: string;
   customerNote: string | null;
   replyWebhookUrl: string;

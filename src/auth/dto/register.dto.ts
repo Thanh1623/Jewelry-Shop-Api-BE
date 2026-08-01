@@ -1,11 +1,5 @@
 import { UserRole } from '@prisma/client';
-import {
-  IsEmail,
-  IsEnum,
-  IsOptional,
-  IsString,
-  MinLength,
-} from 'class-validator';
+import { IsEmail, IsOptional, IsString, Matches, MinLength } from 'class-validator';
 
 export class RegisterDto {
   @IsEmail({}, { message: 'Email không hợp lệ.' })
@@ -20,6 +14,12 @@ export class RegisterDto {
   fullName!: string;
 
   @IsOptional()
-  @IsEnum(UserRole, { message: 'Vai trò không hợp lệ.' })
-  role?: UserRole;
+  @IsString()
+  @Matches(/^[0-9+\-\s()]{8,20}$/, {
+    message: 'Số điện thoại không hợp lệ.',
+  })
+  phone?: string;
 }
+
+/** Public register luôn tạo CUSTOMER — role SALE chỉ seed/admin. */
+export const PUBLIC_REGISTER_ROLE = UserRole.CUSTOMER;

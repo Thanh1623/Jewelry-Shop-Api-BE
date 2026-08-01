@@ -9,8 +9,10 @@ import {
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ChatMessage, UserRole } from '@prisma/client';
 
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Public } from '../common/decorators/public.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
+import type { JwtPayloadUser } from '../common/interfaces/jwt-payload.interface';
 import { ChatGateway } from './chat.gateway';
 import {
   ChatService,
@@ -30,10 +32,17 @@ export class ChatController {
     private readonly chatGateway: ChatGateway,
   ) {}
 
-  @Public()
+  @ApiBearerAuth()
+  @Roles(UserRole.CUSTOMER)
   @Post()
-  createSession(@Body() dto: CreateSessionDto): Promise<ChatSessionDetail> {
-    return this.chatService.createSession(dto);
+  createSession(
+    @CurrentUser() user: JwtPayloadUser,
+    @Body() dto: CreateSessionDto,
+  ): Promise<ChatSessionDetail> {
+    return this.chatService.createSession(dto, {
+      sub: user.sub,
+      fullName: user.fullName,
+    });
   }
 
   @ApiBearerAuth()

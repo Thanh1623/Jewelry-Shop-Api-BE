@@ -4,6 +4,7 @@ import {
   NotFoundException,
   OnModuleInit,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Product } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
@@ -76,9 +77,15 @@ const SEED_PRODUCTS: Array<Omit<Product, 'id' | 'createdAt' | 'updatedAt'>> = [
 export class ProductService implements OnModuleInit {
   private readonly logger = new Logger(ProductService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly configService: ConfigService,
+  ) {}
 
   async onModuleInit(): Promise<void> {
+    if (this.configService.get<string>('SEED_DEMO') !== 'true') {
+      return;
+    }
     await this.seedProducts();
     await this.syncSeedImages();
   }

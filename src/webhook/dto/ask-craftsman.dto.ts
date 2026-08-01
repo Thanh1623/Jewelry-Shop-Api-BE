@@ -11,4 +11,12 @@ export class AskCraftsmanDto {
   @IsOptional()
   @IsString()
   customerNote?: string;
+
+  @IsOptional()
+  @IsString()
+  productImageUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  referenceImageUrl?: string;
 }

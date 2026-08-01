@@ -5,6 +5,7 @@ import {
   OnModuleInit,
   UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { UserRole } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
@@ -12,7 +13,7 @@ import * as bcrypt from 'bcryptjs';
 import { JwtPayloadUser } from '../common/interfaces/jwt-payload.interface';
 import { PrismaService } from '../prisma/prisma.service';
 import { LoginDto } from './dto/login.dto';
-import { RegisterDto } from './dto/register.dto';
+import { PUBLIC_REGISTER_ROLE, RegisterDto } from './dto/register.dto';
 import {
   AuthResponse,
   AuthUserResponse,
@@ -21,10 +22,13 @@ import {
 
 const BCRYPT_ROUNDS = 12;
 
+/** Auth + demo seed for shop users */
+
 interface DemoUserSeed {
   email: string;
   password: string;
   fullName: string;
+  phone?: string;
   role: UserRole;
 }
 
@@ -39,9 +43,18 @@ const DEMO_USERS: DemoUserSeed[] = [
     email: 'customer@jewelry.local',
     password: 'Customer123456!',
     fullName: 'Khách hàng demo',
+    phone: '0901234567',
     role: UserRole.CUSTOMER,
   },
 ];
+
+const authUserSelect = {
+  id: true,
+  email: true,
+  fullName: true,
+  phone: true,
+  role: true,
+} as const;
 
 @Injectable()
 export class AuthService implements OnModuleInit {
@@ -50,9 +63,13 @@ export class AuthService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
+    private readonly configService: ConfigService,
   ) {}
 
   async onModuleInit(): Promise<void> {
+    if (this.configService.get<string>('SEED_DEMO') !== 'true') {
+      return;
+    }
     await this.seedDemoUsers();
   }
 
@@ -70,9 +87,10 @@ export class AuthService implements OnModuleInit {
         email: dto.email,
         passwordHash,
         fullName: dto.fullName,
-        role: dto.role ?? UserRole.CUSTOMER,
+        phone: dto.phone?.trim() || null,
+        role: PUBLIC_REGISTER_ROLE,
       },
-      select: { id: true, email: true, fullName: true, role: true },
+      select: authUserSelect,
     });
 
     return this.buildAuthResponse(user);
@@ -81,6 +99,7 @@ export class AuthService implements OnModuleInit {
   async login(dto: LoginDto): Promise<AuthResponse> {
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email },
+      select: { ...authUserSelect, passwordHash: true },
     });
     if (!user) {
       throw new UnauthorizedException('Email hoặc mật khẩu không đúng.');
@@ -96,6 +115,7 @@ export class AuthService implements OnModuleInit {
       id: user.id,
       email: user.email,
       fullName: user.fullName,
+      phone: user.phone,
       role: user.role,
     });
   }
@@ -103,7 +123,7 @@ export class AuthService implements OnModuleInit {
   async getMe(userId: string): Promise<AuthUserResponse> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, email: true, fullName: true, role: true },
+      select: authUserSelect,
     });
     if (!user) {
       throw new UnauthorizedException('Người dùng không tồn tại.');
@@ -115,6 +135,7 @@ export class AuthService implements OnModuleInit {
     id: string;
     email: string;
     fullName: string;
+    phone: string | null;
     role: UserRole;
   }): AuthResponse {
     const payload: JwtPayloadUser = {
@@ -146,6 +167,7 @@ export class AuthService implements OnModuleInit {
           email: demoUser.email,
           passwordHash,
           fullName: demoUser.fullName,
+          phone: demoUser.phone ?? null,
           role: demoUser.role,
         },
       });

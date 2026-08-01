@@ -15,6 +15,7 @@ import { HealthModule } from './health/health.module';
 import { LlmModule } from './llm/llm.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ProductModule } from './product/product.module';
+import { UploadModule } from './upload/upload.module';
 import { UserModule } from './user/user.module';
 import { WebhookModule } from './webhook/webhook.module';
 
@@ -50,6 +51,7 @@ import { WebhookModule } from './webhook/webhook.module';
     ChatModule,
     AdvisorModule,
     WebhookModule,
+    UploadModule,
   ],
   providers: [
     {

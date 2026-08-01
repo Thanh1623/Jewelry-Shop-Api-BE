@@ -61,6 +61,8 @@ export class WebhookService {
         productWeightGrams: product?.weightGrams ?? 0,
         productLaborCost: product?.laborCost ?? 0,
         productBaseSize: product?.baseSize ?? 6,
+        productImageUrl: dto.productImageUrl ?? product?.imageUrl ?? null,
+        referenceImageUrl: dto.referenceImageUrl ?? null,
         question,
         customerNote: dto.customerNote ?? null,
         replyWebhookUrl: this.craftsmanClient.buildReplyWebhookUrl(),

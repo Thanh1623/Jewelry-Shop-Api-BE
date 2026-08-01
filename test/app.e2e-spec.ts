@@ -19,8 +19,11 @@ describe('Health (e2e)', () => {
         onModuleDestroy: jest.fn(),
         $connect: jest.fn(),
         $disconnect: jest.fn(),
-        // AuthService / ProductService seed on boot
-        user: { count: jest.fn().mockResolvedValue(1) },
+        // AuthService / ProductService seed on boot (SEED_DEMO=true locally)
+        user: {
+          count: jest.fn().mockResolvedValue(1),
+          findUnique: jest.fn().mockResolvedValue({ id: 'seeded' }),
+        },
         product: {
           count: jest.fn().mockResolvedValue(1),
           updateMany: jest.fn().mockResolvedValue({ count: 0 }),
