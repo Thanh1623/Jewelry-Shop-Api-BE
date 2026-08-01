@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { ChatMessage, MessageSender, Prisma } from '@prisma/client';
 
 import {
@@ -98,10 +98,17 @@ export class ChatService {
     sessionId: string,
     dto: SendMessageDto,
   ): Promise<ChatMessage> {
-    if (dto.sender === MessageSender.CUSTOMER) {
-      return this.postCustomerMessage(sessionId, dto.content);
+    const content =
+      dto.content?.trim() ||
+      (dto.imageUrl ? '[Ảnh đính kèm]' : '');
+    if (!content) {
+      throw new BadRequestException('Nội dung tin nhắn không được để trống.');
     }
-    return this.postSaleMessage(sessionId, dto.content);
+
+    if (dto.sender === MessageSender.CUSTOMER) {
+      return this.postCustomerMessage(sessionId, content, dto.imageUrl);
+    }
+    return this.postSaleMessage(sessionId, content, dto.imageUrl);
   }
 
   async previewSaleTranslation(
@@ -150,6 +157,36 @@ export class ChatService {
     return this.createMessage(sessionId, sender, content, metaJson);
   }
 
+  /** Sale → AI / thợ: hiện trong lane nội bộ, không lộ sang khách. */
+  async createInternalSaleMessage(
+    sessionId: string,
+    content: string,
+    options: {
+      internalLane: 'AI' | 'CRAFTSMAN';
+      imageUrl?: string | null;
+    },
+  ): Promise<ChatMessage> {
+    const trimmed = content.trim();
+    const text =
+      trimmed ||
+      (options.imageUrl ? '[Ảnh đính kèm]' : '');
+    if (!text) {
+      throw new BadRequestException('Nội dung tin nhắn không được để trống.');
+    }
+
+    const metaJson = {
+      internalLane: options.internalLane,
+      ...(options.imageUrl ? { imageUrl: options.imageUrl } : {}),
+    } as unknown as Prisma.InputJsonValue;
+
+    return this.createMessage(
+      sessionId,
+      MessageSender.SALE,
+      text,
+      metaJson,
+    );
+  }
+
   async getLastCustomerMessage(sessionId: string): Promise<ChatMessage | null> {
     return this.prisma.chatMessage.findFirst({
       where: { sessionId, sender: MessageSender.CUSTOMER },
@@ -160,6 +197,7 @@ export class ChatService {
   private async postCustomerMessage(
     sessionId: string,
     content: string,
+    imageUrl?: string,
   ): Promise<ChatMessage> {
     const session = await this.prisma.chatSession.findUnique({
       where: { id: sessionId },
@@ -169,25 +207,31 @@ export class ChatService {
       throw new NotFoundException('Không tìm thấy phiên trò chuyện.');
     }
 
-    const translation = await this.translationService.detectAndTranslateToSale(
-      content,
-      session.customerLocale,
-    );
+    const meta: Record<string, unknown> = {};
+    if (imageUrl) {
+      meta.imageUrl = imageUrl;
+    }
 
-    let metaJson: Prisma.InputJsonValue | undefined;
-    if (translation) {
-      const i18n: MessageI18nMeta = {
-        sourceLocale: translation.sourceLocale,
-        targetLocale: translation.targetLocale,
-        translatedText: translation.translatedText,
-      };
-      metaJson = { i18n } as unknown as Prisma.InputJsonValue;
+    // skip translation for image-only placeholder
+    if (content !== '[Ảnh đính kèm]') {
+      const translation = await this.translationService.detectAndTranslateToSale(
+        content,
+        session.customerLocale,
+      );
 
-      if (!session.customerLocale) {
-        await this.prisma.chatSession.update({
-          where: { id: sessionId },
-          data: { customerLocale: translation.sourceLocale },
-        });
+      if (translation) {
+        meta.i18n = {
+          sourceLocale: translation.sourceLocale,
+          targetLocale: translation.targetLocale,
+          translatedText: translation.translatedText,
+        } satisfies MessageI18nMeta;
+
+        if (!session.customerLocale) {
+          await this.prisma.chatSession.update({
+            where: { id: sessionId },
+            data: { customerLocale: translation.sourceLocale },
+          });
+        }
       }
     }
 
@@ -195,13 +239,16 @@ export class ChatService {
       sessionId,
       MessageSender.CUSTOMER,
       content,
-      metaJson,
+      Object.keys(meta).length > 0
+        ? (meta as unknown as Prisma.InputJsonValue)
+        : undefined,
     );
   }
 
   private async postSaleMessage(
     sessionId: string,
     content: string,
+    imageUrl?: string,
   ): Promise<ChatMessage> {
     const session = await this.prisma.chatSession.findUnique({
       where: { id: sessionId },
@@ -209,6 +256,20 @@ export class ChatService {
     });
     if (!session) {
       throw new NotFoundException('Không tìm thấy phiên trò chuyện.');
+    }
+
+    const meta: Record<string, unknown> = {};
+    if (imageUrl) {
+      meta.imageUrl = imageUrl;
+    }
+
+    if (content === '[Ảnh đính kèm]') {
+      return this.createMessage(
+        sessionId,
+        MessageSender.SALE,
+        content,
+        meta as unknown as Prisma.InputJsonValue,
+      );
     }
 
     const customerLocale =
@@ -220,21 +281,28 @@ export class ChatService {
     );
 
     if (!translation) {
-      return this.createMessage(sessionId, MessageSender.SALE, content);
+      return this.createMessage(
+        sessionId,
+        MessageSender.SALE,
+        content,
+        Object.keys(meta).length > 0
+          ? (meta as unknown as Prisma.InputJsonValue)
+          : undefined,
+      );
     }
 
-    const i18n: MessageI18nMeta = {
+    meta.i18n = {
       sourceLocale: translation.sourceLocale,
       targetLocale: translation.targetLocale,
       originalText: content,
-    };
+    } satisfies MessageI18nMeta;
 
     // Customer sees translated content; sale UI can show originalText from meta
     return this.createMessage(
       sessionId,
       MessageSender.SALE,
       translation.translatedText,
-      { i18n } as unknown as Prisma.InputJsonValue,
+      meta as unknown as Prisma.InputJsonValue,
     );
   }
 

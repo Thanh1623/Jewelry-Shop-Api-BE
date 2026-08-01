@@ -1,3 +1,5 @@
+import { createHash, randomBytes } from 'crypto';
+
 import {
   ConflictException,
   Injectable,
@@ -22,8 +24,6 @@ import {
 
 const BCRYPT_ROUNDS = 12;
 
-/** Auth + demo seed for shop users */
-
 interface DemoUserSeed {
   email: string;
   password: string;
@@ -33,6 +33,12 @@ interface DemoUserSeed {
 }
 
 const DEMO_USERS: DemoUserSeed[] = [
+  {
+    email: 'admin@jewelry.local',
+    password: 'Admin123456!',
+    fullName: 'Quản trị viên',
+    role: UserRole.ADMIN,
+  },
   {
     email: 'sale@jewelry.local',
     password: 'Sale123456!',
@@ -120,6 +126,36 @@ export class AuthService implements OnModuleInit {
     });
   }
 
+  async refresh(refreshToken: string): Promise<AuthResponse> {
+    const tokenHash = this.hashToken(refreshToken);
+    const stored = await this.prisma.refreshToken.findUnique({
+      where: { tokenHash },
+      include: { user: { select: authUserSelect } },
+    });
+    if (!stored || stored.revokedAt || stored.expiresAt < new Date()) {
+      throw new UnauthorizedException('Refresh token không hợp lệ.');
+    }
+
+    // rotate: revoke old, issue new pair
+    await this.prisma.refreshToken.update({
+      where: { id: stored.id },
+      data: { revokedAt: new Date() },
+    });
+
+    return this.buildAuthResponse(stored.user);
+  }
+
+  async logout(refreshToken?: string): Promise<void> {
+    if (!refreshToken) {
+      return;
+    }
+    const tokenHash = this.hashToken(refreshToken);
+    await this.prisma.refreshToken.updateMany({
+      where: { tokenHash, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+  }
+
   async getMe(userId: string): Promise<AuthUserResponse> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -131,33 +167,67 @@ export class AuthService implements OnModuleInit {
     return mapUserToAuthResponse(user);
   }
 
-  private buildAuthResponse(user: {
+  private async buildAuthResponse(user: {
     id: string;
     email: string;
     fullName: string;
     phone: string | null;
     role: UserRole;
-  }): AuthResponse {
+  }): Promise<AuthResponse> {
     const payload: JwtPayloadUser = {
       sub: user.id,
       email: user.email,
       fullName: user.fullName,
       role: user.role,
     };
-    const accessToken = this.jwtService.sign(payload);
+    const accessExpiresIn = this.configService.get<string>(
+      'JWT_ACCESS_EXPIRES_IN',
+      '15m',
+    );
+    const accessToken = this.jwtService.sign(payload, {
+      expiresIn: accessExpiresIn as `${number}${'s' | 'm' | 'h' | 'd'}`,
+    });
+
+    const refreshToken = randomBytes(48).toString('base64url');
+    const refreshDays = Number(
+      this.configService.get<string>('JWT_REFRESH_DAYS', '7'),
+    );
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + refreshDays);
+
+    await this.prisma.refreshToken.create({
+      data: {
+        userId: user.id,
+        tokenHash: this.hashToken(refreshToken),
+        expiresAt,
+      },
+    });
+
     return {
       accessToken,
+      refreshToken,
       user: mapUserToAuthResponse(user),
     };
+  }
+
+  private hashToken(token: string): string {
+    return createHash('sha256').update(token).digest('hex');
   }
 
   private async seedDemoUsers(): Promise<void> {
     for (const demoUser of DEMO_USERS) {
       const existing = await this.prisma.user.findUnique({
         where: { email: demoUser.email },
-        select: { id: true },
+        select: { id: true, role: true },
       });
       if (existing) {
+        // upgrade role if admin seed was added later
+        if (existing.role !== demoUser.role && demoUser.role === UserRole.ADMIN) {
+          await this.prisma.user.update({
+            where: { id: existing.id },
+            data: { role: UserRole.ADMIN },
+          });
+        }
         continue;
       }
 

@@ -1,5 +1,11 @@
 import { MessageSender } from '@prisma/client';
-import { IsEnum, IsString, MinLength } from 'class-validator';
+import {
+  IsEnum,
+  IsOptional,
+  IsString,
+  MinLength,
+  ValidateIf,
+} from 'class-validator';
 
 // ponytail: only CUSTOMER/SALE can post through this human-facing endpoint —
 // AI/CRAFTSMAN messages are created internally by the advisor/webhook services.
@@ -11,9 +17,14 @@ export type HumanMessageSender =
   (typeof HumanMessageSender)[keyof typeof HumanMessageSender];
 
 export class SendMessageDto {
+  @ValidateIf((dto: SendMessageDto) => !dto.imageUrl)
   @IsString()
   @MinLength(1, { message: 'Nội dung tin nhắn không được để trống.' })
-  content!: string;
+  content?: string;
+
+  @IsOptional()
+  @IsString()
+  imageUrl?: string;
 
   @IsEnum(HumanMessageSender, { message: 'Người gửi không hợp lệ.' })
   sender!: HumanMessageSender;

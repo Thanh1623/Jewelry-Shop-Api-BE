@@ -33,7 +33,7 @@ interface UploadedImageFile {
 export class UploadController {
   constructor(private readonly uploadService: UploadService) {}
 
-  @Roles(UserRole.SALE)
+  @Roles(UserRole.SALE, UserRole.CUSTOMER)
   @ApiConsumes('multipart/form-data')
   @Post('image')
   @UseInterceptors(

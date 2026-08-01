@@ -1,4 +1,5 @@
 import {
+  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
@@ -7,7 +8,10 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Product } from '@prisma/client';
 
+import { calculateJewelryPrice } from '../advisor/pricing.rules';
 import { PrismaService } from '../prisma/prisma.service';
+import { CreateProductDto } from './dto/create-product.dto';
+import { UpdateProductDto } from './dto/update-product.dto';
 
 const SEED_PRODUCTS: Array<Omit<Product, 'id' | 'createdAt' | 'updatedAt'>> = [
   {
@@ -97,12 +101,107 @@ export class ProductService implements OnModuleInit {
     });
   }
 
+  async findAllAdmin(): Promise<Product[]> {
+    return this.prisma.product.findMany({
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
   async findById(id: string): Promise<Product> {
     const product = await this.prisma.product.findUnique({ where: { id } });
     if (!product) {
       throw new NotFoundException('Không tìm thấy sản phẩm.');
     }
     return product;
+  }
+
+  async create(dto: CreateProductDto): Promise<Product> {
+    const existing = await this.prisma.product.findUnique({
+      where: { sku: dto.sku },
+      select: { id: true },
+    });
+    if (existing) {
+      throw new ConflictException('SKU đã tồn tại.');
+    }
+
+    return this.prisma.product.create({
+      data: {
+        sku: dto.sku.trim(),
+        name: dto.name.trim(),
+        description: dto.description?.trim() || null,
+        imageUrl: dto.imageUrl?.trim() || null,
+        weightGrams: dto.weightGrams,
+        laborCost: Math.round(dto.laborCost),
+        baseSize: dto.baseSize ?? 6,
+        sizeDeltaGrams: dto.sizeDeltaGrams ?? 0.15,
+        isActive: dto.isActive ?? true,
+      },
+    });
+  }
+
+  async update(id: string, dto: UpdateProductDto): Promise<Product> {
+    await this.findById(id);
+
+    if (dto.sku) {
+      const conflict = await this.prisma.product.findFirst({
+        where: { sku: dto.sku, NOT: { id } },
+        select: { id: true },
+      });
+      if (conflict) {
+        throw new ConflictException('SKU đã tồn tại.');
+      }
+    }
+
+    return this.prisma.product.update({
+      where: { id },
+      data: {
+        ...(dto.sku !== undefined ? { sku: dto.sku.trim() } : {}),
+        ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
+        ...(dto.description !== undefined
+          ? { description: dto.description.trim() || null }
+          : {}),
+        ...(dto.imageUrl !== undefined
+          ? { imageUrl: dto.imageUrl.trim() || null }
+          : {}),
+        ...(dto.weightGrams !== undefined
+          ? { weightGrams: dto.weightGrams }
+          : {}),
+        ...(dto.laborCost !== undefined
+          ? { laborCost: Math.round(dto.laborCost) }
+          : {}),
+        ...(dto.baseSize !== undefined ? { baseSize: dto.baseSize } : {}),
+        ...(dto.sizeDeltaGrams !== undefined
+          ? { sizeDeltaGrams: dto.sizeDeltaGrams }
+          : {}),
+        ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
+      },
+    });
+  }
+
+  async softDelete(id: string): Promise<Product> {
+    await this.findById(id);
+    return this.prisma.product.update({
+      where: { id },
+      data: { isActive: false },
+    });
+  }
+
+  /** Estimate list unit price for cart/checkout (base size). */
+  estimateUnitPrice(product: Product): number {
+    const silverPricePerGram = Number(
+      this.configService.get<string>('SILVER_PRICE_PER_GRAM', '28000'),
+    );
+    const marginRate = Number(
+      this.configService.get<string>('DEFAULT_MARGIN_RATE', '0.25'),
+    );
+    return calculateJewelryPrice({
+      weightGrams: product.weightGrams,
+      laborCost: product.laborCost,
+      baseSize: product.baseSize,
+      sizeDeltaGrams: product.sizeDeltaGrams,
+      silverPricePerGram,
+      marginRate,
+    }).totalPrice;
   }
 
   private async seedProducts(): Promise<void> {

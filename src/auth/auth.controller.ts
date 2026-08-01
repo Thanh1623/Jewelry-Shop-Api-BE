@@ -13,6 +13,8 @@ import { Public } from '../common/decorators/public.decorator';
 import type { JwtPayloadUser } from '../common/interfaces/jwt-payload.interface';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
+import { LogoutDto } from './dto/logout.dto';
+import { RefreshDto } from './dto/refresh.dto';
 import { RegisterDto } from './dto/register.dto';
 import { AuthResponse, AuthUserResponse } from './mappers/auth-response.mapper';
 
@@ -21,7 +23,7 @@ import { AuthResponse, AuthUserResponse } from './mappers/auth-response.mapper';
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
-  @Public() // Bỏ qua JwtAuthGuard — ai cũng gọi được
+  @Public()
   @Post('register')
   register(@Body() dto: RegisterDto): Promise<AuthResponse> {
     return this.authService.register(dto);
@@ -29,14 +31,27 @@ export class AuthController {
 
   @Public()
   @Post('login')
-  @HttpCode(HttpStatus.OK) // Login trả 200 (POST mặc định là 201)
+  @HttpCode(HttpStatus.OK)
   login(@Body() dto: LoginDto): Promise<AuthResponse> {
     return this.authService.login(dto);
   }
 
-  @ApiBearerAuth() // Swagger hiện nút Authorize cho /me để user có thể test API
+  @Public()
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  refresh(@Body() dto: RefreshDto): Promise<AuthResponse> {
+    return this.authService.refresh(dto.refreshToken);
+  }
+
+  @Public()
+  @Post('logout')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async logout(@Body() dto: LogoutDto): Promise<void> {
+    await this.authService.logout(dto.refreshToken);
+  }
+
+  @ApiBearerAuth()
   @Get('me')
-  // @CurrentUser() Lấy request.user từ Guard — không parse JWT thủ công
   getMe(@CurrentUser() user: JwtPayloadUser): Promise<AuthUserResponse> {
     return this.authService.getMe(user.sub);
   }

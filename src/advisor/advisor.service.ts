@@ -39,20 +39,45 @@ export class AdvisorService {
       );
     }
 
-    const questionMessage = dto.messageId
-      ? session.messages.find(
-          (m) => m.id === dto.messageId && m.sender === MessageSender.CUSTOMER,
-        )
-      : await this.chatService.getLastCustomerMessage(dto.sessionId);
+    const product = session.product;
+    const questionText = dto.question?.trim()
+      ? dto.question.trim()
+      : (() => {
+          const questionMessage = dto.messageId
+            ? session.messages.find(
+                (m) =>
+                  m.id === dto.messageId && m.sender === MessageSender.CUSTOMER,
+              )
+            : null;
+          return questionMessage?.content;
+        })();
 
-    if (!questionMessage) {
+    const resolvedQuestion =
+      questionText ??
+      (await this.chatService.getLastCustomerMessage(dto.sessionId))?.content;
+
+    if (!resolvedQuestion && !dto.imageUrl) {
       throw new BadRequestException(
-        'Chưa có câu hỏi nào từ khách hàng trong phiên này.',
+        'Chưa có câu hỏi để AI tư vấn (gõ câu hỏi hoặc chờ khách nhắn trước).',
       );
     }
 
-    const product = session.product;
-    const requestedSize = parseRequestedSizeFromText(questionMessage.content);
+    const questionForAi =
+      resolvedQuestion ??
+      'Khách/sale gửi ảnh đính kèm — hãy tư vấn dựa trên sản phẩm trong phiên.';
+
+    // Bubble câu hỏi sale trong lane AI (không lộ khách)
+    if (dto.question?.trim() || dto.imageUrl) {
+      const askMessage = await this.chatService.createInternalSaleMessage(
+        dto.sessionId,
+        dto.question?.trim() ||
+          (dto.imageUrl ? '[Ảnh đính kèm]' : questionForAi),
+        { internalLane: 'AI', imageUrl: dto.imageUrl },
+      );
+      this.chatGateway.emitMessageCreated(dto.sessionId, askMessage);
+    }
+
+    const requestedSize = parseRequestedSizeFromText(questionForAi);
     const breakdown = calculateJewelryPrice({
       weightGrams: product.weightGrams,
       laborCost: product.laborCost,
@@ -65,7 +90,7 @@ export class AdvisorService {
 
     const explanation = await this.buildExplanation(
       product.name,
-      questionMessage.content,
+      questionForAi,
       breakdown,
     );
 

@@ -68,6 +68,7 @@ export class ChatController {
   ): Promise<ChatMessage> {
     const message = await this.chatService.postMessage(id, dto);
     this.chatGateway.emitMessageCreated(id, message);
+    void this.chatGateway.notifySalesIfCustomerMessage(id, message);
     return message;
   }
 

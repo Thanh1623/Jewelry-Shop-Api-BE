@@ -1,4 +1,5 @@
 import {
+  BadGatewayException,
   BadRequestException,
   Injectable,
   Logger,
@@ -52,6 +53,17 @@ export class WebhookService {
       },
     });
 
+    // Bubble câu hỏi sale trong lane Thợ (không lộ khách)
+    const askMessage = await this.chatService.createInternalSaleMessage(
+      dto.sessionId,
+      question,
+      {
+        internalLane: 'CRAFTSMAN',
+        imageUrl: dto.referenceImageUrl ?? dto.productImageUrl ?? null,
+      },
+    );
+    this.chatGateway.emitMessageCreated(dto.sessionId, askMessage);
+
     try {
       await this.craftsmanClient.sendAskRequest({
         requestId: request.id,
@@ -94,7 +106,10 @@ export class WebhookService {
         requestId: failedRequest.id,
         status: failedRequest.status,
       });
-      return failedRequest;
+      // do not return 200 with FAILED — sale FE must see a real error
+      throw new BadGatewayException(
+        `Không gửi được yêu cầu sang app thợ: ${errorMessage}`,
+      );
     }
   }
 
@@ -142,6 +157,10 @@ export class WebhookService {
       status: updatedRequest.status,
       answer: updatedRequest.answer,
     });
+    void this.chatGateway.notifySalesCraftsmanReply(
+      request.sessionId,
+      dto.answer,
+    );
 
     return updatedRequest;
   }
